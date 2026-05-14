@@ -1,18 +1,20 @@
-"""Slack Socket Mode worker. Run as a Railway worker process (Procfile: slack_bot).
+"""Slack Socket Mode worker. Run as a Railway worker process.
 
-Listens to messages in SLACK_CHANNEL. Recognizes commands typed in chat:
+In Slack, the `/` prefix is reserved for registered slash commands. So all of
+Letícia's commands work by *mentioning* her (`@Letícia <cmd>`) or by typing the
+bare command in the channel:
 
-  /start                       — global autonomy ON
-  /stop                        — global autonomy OFF
-  /start 5511999999999         — autonomy ON only for that phone
-  /stop  5511999999999         — autonomy OFF only for that phone
-  /send  5511999999999 texto   — send a message manually as Letícia
-  /status                      — counters snapshot
-  /history 5511999999999       — last 10 messages with that lead
-  /optout 5511999999999 motivo — add phone to opt-out list
-  /help                        — show usage
+  @Letícia start                       — global autonomy ON
+  @Letícia stop                        — global autonomy OFF
+  @Letícia start 5511999999999         — autonomy ON only for that phone
+  @Letícia stop 5511999999999          — autonomy OFF only for that phone
+  @Letícia send 5511999999999 texto    — send a message manually as Letícia
+  @Letícia status                      — counters snapshot
+  @Letícia history 5511999999999       — last 10 messages with that lead
+  @Letícia optout 5511999999999 motivo — add phone to opt-out list
+  @Letícia help                        — show usage
 
-Mentioning the bot (@Letícia) without a command triggers /help.
+Mentioning the bot without any command shows the help.
 """
 from __future__ import annotations
 
@@ -29,16 +31,18 @@ log = logging.getLogger(__name__)
 
 
 HELP_TEXT = (
-    "*Comandos Letícia* (digite no canal):\n"
-    "• `/start` — autonomia GLOBAL ON\n"
-    "• `/stop` — autonomia GLOBAL OFF\n"
-    "• `/start <fone>` — ON só pra esse número\n"
-    "• `/stop <fone>` — OFF só pra esse número\n"
-    "• `/send <fone> <texto>` — eu mando como Letícia\n"
-    "• `/status` — números atuais\n"
-    "• `/history <fone>` — últimas 10 mensagens\n"
-    "• `/optout <fone> [motivo]` — bloqueia esse número\n"
-    "• `/help` — esta ajuda"
+    "*Comandos Letícia* — marca a bot (`@Letícia <cmd>`):\n"
+    "• `@Letícia start` — autonomia GLOBAL ON\n"
+    "• `@Letícia stop` — autonomia GLOBAL OFF\n"
+    "• `@Letícia start <fone>` — ON só pra esse número\n"
+    "• `@Letícia stop <fone>` — OFF só pra esse número\n"
+    "• `@Letícia send <fone> <texto>` — eu mando como Letícia\n"
+    "• `@Letícia status` — números atuais\n"
+    "• `@Letícia history <fone>` — últimas 10 mensagens\n"
+    "• `@Letícia optout <fone> [motivo]` — bloqueia esse número\n"
+    "• `@Letícia help` — esta ajuda\n"
+    "\n"
+    "_Dica:_ comandos sem mencionar também funcionam (ex: digitar só `status` no canal)."
 )
 
 

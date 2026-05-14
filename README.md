@@ -142,20 +142,23 @@ ngrok http 8000
 
 ## Comandos no Slack (`#leticia-teste`)
 
-| Comando                        | Efeito |
-|--------------------------------|--------|
-| `/start`                       | Liga autonomia GLOBAL (Letícia responde sozinha) |
-| `/stop`                        | Desliga autonomia GLOBAL (mensagens entram só pra revisão) |
-| `/start <fone>`                | Liga autonomia só pra esse número |
-| `/stop  <fone>`                | Desliga autonomia só pra esse número |
-| `/send  <fone> <texto>`        | Letícia envia mensagem manualmente |
-| `/status`                      | Snapshot: leads, conversas ativas, opt-outs, escalações |
-| `/history <fone>`              | Últimas 10 mensagens da conversa |
-| `/optout <fone> [motivo]`      | Adiciona número à lista de bloqueio permanente |
-| `/help`                        | Mostra a ajuda |
+No Slack, `/` é reservado pra slash commands registrados no app. Pra falar com a
+Letícia, **mencione a bot** (`@Letícia <cmd>`) — ou digite o comando direto no canal
+sem mencionar, que também funciona.
 
-Comandos sem barra também funcionam (`status`, `send 55... texto`). O bot só aceita
-comandos no canal `#leticia-teste` — ignora qualquer outro.
+| Comando                                  | Efeito |
+|------------------------------------------|--------|
+| `@Letícia start`                         | Liga autonomia GLOBAL (Letícia responde sozinha) |
+| `@Letícia stop`                          | Desliga autonomia GLOBAL (mensagens entram só pra revisão) |
+| `@Letícia start <fone>`                  | Liga autonomia só pra esse número |
+| `@Letícia stop <fone>`                   | Desliga autonomia só pra esse número |
+| `@Letícia send <fone> <texto>`           | Letícia envia mensagem manualmente |
+| `@Letícia status`                        | Snapshot: leads, conversas ativas, opt-outs, escalações |
+| `@Letícia history <fone>`                | Últimas 10 mensagens da conversa |
+| `@Letícia optout <fone> [motivo]`        | Adiciona número à lista de bloqueio permanente |
+| `@Letícia help`                          | Mostra a ajuda |
+
+O bot só aceita comandos no canal `#leticia-teste` — ignora qualquer outro.
 
 ### Notificações automáticas que ela posta sozinha
 
