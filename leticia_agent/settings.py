@@ -52,16 +52,21 @@ TEMPLATES = [
 ]
 
 DATABASE_URL = env("DATABASE_URL")
-if DATABASE_URL:
+_VALID_DB_SCHEMES = ("postgres://", "postgresql://", "sqlite://")
+if DATABASE_URL and DATABASE_URL.startswith(_VALID_DB_SCHEMES):
     DATABASES = {
         "default": dj_database_url.config(
             default=DATABASE_URL,
             conn_max_age=600,
-            ssl_require=True,
+            ssl_require=DATABASE_URL.startswith(("postgres://", "postgresql://")),
         )
     }
-    DATABASES["default"]["OPTIONS"] = {"options": "-c search_path=leticia,public"}
+    if DATABASES["default"]["ENGINE"].endswith("postgresql"):
+        DATABASES["default"]["OPTIONS"] = {"options": "-c search_path=leticia,public"}
 else:
+    # Boot-safe fallback so the web service can start before DATABASE_URL is set.
+    # The app cannot do real work in this state — it will return 500s on any DB query —
+    # but /health/ stays up so deploys don't crashloop.
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",

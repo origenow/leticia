@@ -99,10 +99,20 @@ class Command(BaseCommand):
     help = "Run the Slack Socket Mode listener for #leticia-teste."
 
     def handle(self, *args, **options):
-        if not settings.SLACK_BOT_TOKEN or not settings.SLACK_APP_TOKEN:
-            self.stdout.write(self.style.ERROR(
-                "SLACK_BOT_TOKEN and SLACK_APP_TOKEN are required."
+        bot_token = settings.SLACK_BOT_TOKEN or ""
+        app_token = settings.SLACK_APP_TOKEN or ""
+        if not bot_token.startswith("xoxb-") or not app_token.startswith("xapp-"):
+            # Boot-safe idle: keep the container alive so Railway shows the service as up,
+            # but don't try to connect to Slack with placeholder/empty credentials.
+            self.stdout.write(self.style.WARNING(
+                "Slack credentials missing or malformed.\n"
+                f"  SLACK_BOT_TOKEN starts with: {bot_token[:5] or '<empty>'}  (expected 'xoxb-')\n"
+                f"  SLACK_APP_TOKEN starts with: {app_token[:5] or '<empty>'}  (expected 'xapp-')\n"
+                "Set both in Railway and redeploy. Idling..."
             ))
+            import time
+            while True:
+                time.sleep(3600)
             return
 
         from slack_bolt import App
