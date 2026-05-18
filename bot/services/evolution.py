@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from urllib.parse import quote
 
 import httpx
 from django.conf import settings
@@ -65,8 +66,13 @@ def parse_inbound(payload: dict) -> InboundMessage | None:
 
 
 def send_text(phone: str, text: str) -> dict:
-    """POST to Evolution /message/sendText/{instance}."""
-    url = f"{settings.EVOLUTION_BASE_URL.rstrip('/')}/message/sendText/{settings.EVOLUTION_INSTANCE}"
+    """POST to Evolution /message/sendText/{instance}.
+
+    Instance name is URL-encoded explicitly here so accented names like 'Letícia'
+    survive env-var round-tripping (where Latin-1 mojibake can creep in).
+    """
+    instance = quote(settings.EVOLUTION_INSTANCE, safe="")
+    url = f"{settings.EVOLUTION_BASE_URL.rstrip('/')}/message/sendText/{instance}"
     headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
     body = {"number": phone, "text": text}
     try:
