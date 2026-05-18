@@ -122,22 +122,39 @@ def handle_inbound(phone: str, body: str, message_id: str, push_name: str, raw: 
 
     # HANDOFF detection: Letícia incluiu [[HANDOFF: motivo]] na resposta?
     # Se sim: strip da tag, log de escalação, pinga o Nathan no Slack.
+    # Mas SÓ pinga se NÃO houve handoff recente nessa conversa (dedup 24h).
     handoff_match = HANDOFF_RE.search(reply)
     if handoff_match:
         summary = handoff_match.group(1).strip()
         reply = HANDOFF_RE.sub("", reply).strip()
-        try:
-            Escalation.objects.create(lead=lead, trigger="handoff", context=summary[:500])
-            conv.status = "escalated"
-            conv.save(update_fields=["status", "updated_at"])
-            transcript_lines = []
-            for h in history[-6:]:
-                tag = "lead" if h["role"] == "user" else "Letícia"
-                transcript_lines.append(f"{tag}: {h['content']}")
-            transcript_lines.append(f"lead: {body}")
-            slack_notify.notify_handoff(lead, summary, "\n".join(transcript_lines))
-        except Exception:
-            log.exception("handoff side effects failed (still delivering reply)")
+        # Dedup: já avisamos o Nathan sobre esse lead nas últimas 24h?
+        from datetime import timedelta
+        since = timezone.now() - timedelta(hours=24)
+        recent_handoff = Escalation.objects.filter(
+            lead=lead, trigger="handoff", created_at__gte=since
+        ).exists()
+        if recent_handoff:
+            log.info("handoff suppressed (already escalated in last 24h) lead=%s", lead.phone)
+            # Ainda grava no banco mas sem notificar (pra auditoria)
+            try:
+                Escalation.objects.create(
+                    lead=lead, trigger="handoff_dup", context=summary[:500]
+                )
+            except Exception:
+                log.exception("handoff dup log failed")
+        else:
+            try:
+                Escalation.objects.create(lead=lead, trigger="handoff", context=summary[:500])
+                conv.status = "escalated"
+                conv.save(update_fields=["status", "updated_at"])
+                transcript_lines = []
+                for h in history[-6:]:
+                    tag = "lead" if h["role"] == "user" else "Letícia"
+                    transcript_lines.append(f"{tag}: {h['content']}")
+                transcript_lines.append(f"lead: {body}")
+                slack_notify.notify_handoff(lead, summary, "\n".join(transcript_lines))
+            except Exception:
+                log.exception("handoff side effects failed (still delivering reply)")
 
     _send_and_log(conv, reply)
 
