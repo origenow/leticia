@@ -51,22 +51,43 @@ TEMPLATES = [
     }
 ]
 
+# DB config: prefer individual env vars (PGHOST/PGUSER/PGPASSWORD/...) over DATABASE_URL.
+# This avoids URL-parsing fragility when passwords contain @, #, !, etc.
+PGHOST = env("PGHOST")
+PGUSER = env("PGUSER")
+PGPASSWORD = env("PGPASSWORD")
+PGDATABASE = env("PGDATABASE", "postgres")
+PGPORT = env("PGPORT", "6543")
 DATABASE_URL = env("DATABASE_URL")
-_VALID_DB_SCHEMES = ("postgres://", "postgresql://", "sqlite://")
-if DATABASE_URL and DATABASE_URL.startswith(_VALID_DB_SCHEMES):
+
+if PGHOST and PGUSER and PGPASSWORD:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "HOST": PGHOST,
+            "USER": PGUSER,
+            "PASSWORD": PGPASSWORD,
+            "NAME": PGDATABASE,
+            "PORT": PGPORT,
+            "CONN_MAX_AGE": 600,
+            "OPTIONS": {
+                "sslmode": "require",
+                "options": "-c search_path=leticia,public",
+            },
+        }
+    }
+elif DATABASE_URL and DATABASE_URL.startswith(("postgres://", "postgresql://")):
     DATABASES = {
         "default": dj_database_url.config(
             default=DATABASE_URL,
             conn_max_age=600,
-            ssl_require=DATABASE_URL.startswith(("postgres://", "postgresql://")),
+            ssl_require=True,
         )
     }
     if DATABASES["default"]["ENGINE"].endswith("postgresql"):
         DATABASES["default"]["OPTIONS"] = {"options": "-c search_path=leticia,public"}
 else:
-    # Boot-safe fallback so the web service can start before DATABASE_URL is set.
-    # The app cannot do real work in this state — it will return 500s on any DB query —
-    # but /health/ stays up so deploys don't crashloop.
+    # Boot-safe fallback so the service can start with missing/placeholder credentials.
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
