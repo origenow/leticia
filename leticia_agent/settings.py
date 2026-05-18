@@ -139,6 +139,7 @@ SLACK_CHANNEL = env("SLACK_CHANNEL", "#leticia-teste")
 SLACK_ALLOWED_USERS = [
     u.strip() for u in env("SLACK_ALLOWED_USERS", "").split(",") if u.strip()
 ]
+SLACK_NATHAN_USER_ID = env("SLACK_NATHAN_USER_ID", "")  # for @mention on handoff
 
 LETICIA_AUTONOMY_DEFAULT = env("LETICIA_AUTONOMY_DEFAULT", "true").lower() == "true"
 LETICIA_TYPING_DELAY_MIN_MS = int(env("LETICIA_TYPING_DELAY_MIN_MS", "2000"))

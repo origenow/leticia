@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from django.utils import timezone
+
+# Letícia inclui este token quando decide passar o lead pro Nathan.
+HANDOFF_RE = re.compile(r"\[\[HANDOFF:\s*([^\]]+)\]\]", re.IGNORECASE)
 
 from ..models import (
     CommandLog,
@@ -115,6 +119,25 @@ def handle_inbound(phone: str, body: str, message_id: str, push_name: str, raw: 
     if not reply:
         slack_notify.notify_error(lead, "Claude returned empty reply")
         return
+
+    # HANDOFF detection: Letícia incluiu [[HANDOFF: motivo]] na resposta?
+    # Se sim: strip da tag, log de escalação, pinga o Nathan no Slack.
+    handoff_match = HANDOFF_RE.search(reply)
+    if handoff_match:
+        summary = handoff_match.group(1).strip()
+        reply = HANDOFF_RE.sub("", reply).strip()
+        try:
+            Escalation.objects.create(lead=lead, trigger="handoff", context=summary[:500])
+            conv.status = "escalated"
+            conv.save(update_fields=["status", "updated_at"])
+            transcript_lines = []
+            for h in history[-6:]:
+                tag = "lead" if h["role"] == "user" else "Letícia"
+                transcript_lines.append(f"{tag}: {h['content']}")
+            transcript_lines.append(f"lead: {body}")
+            slack_notify.notify_handoff(lead, summary, "\n".join(transcript_lines))
+        except Exception:
+            log.exception("handoff side effects failed (still delivering reply)")
 
     _send_and_log(conv, reply)
 

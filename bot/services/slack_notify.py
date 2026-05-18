@@ -44,12 +44,29 @@ def notify_opt_out(lead, body: str) -> None:
 
 
 def notify_escalation(lead, body: str, trigger: str) -> None:
+    nathan = settings.SLACK_NATHAN_USER_ID
+    mention = f"<@{nathan}> " if nathan else ""
     post(
         f":rotating_light: *Escalação — {trigger}*\n"
-        f"Lead: `{lead.phone}` ({lead.display_name or '—'})\n"
+        f"{mention}Lead: `{lead.phone}` ({lead.display_name or '-'})\n"
         f"> {body[:400]}\n"
-        f"_Nathan, assume._"
+        f"_Assume, por favor._"
     )
+
+
+def notify_handoff(lead, summary: str, recent_transcript: str = "") -> None:
+    """Hot-lead handoff — Letícia decidiu passar pro Nathan. @-menciona ele."""
+    nathan = settings.SLACK_NATHAN_USER_ID
+    mention = f"<@{nathan}> " if nathan else ""
+    msg = (
+        f":fire: *Lead quente — handoff pro Nathan*\n"
+        f"{mention}\n"
+        f"Lead: `{lead.phone}` ({lead.display_name or '-'})\n"
+        f"*Resumo da Letícia:* {summary}\n"
+    )
+    if recent_transcript:
+        msg += f"\n*Últimas mensagens:*\n```\n{recent_transcript[:1500]}\n```"
+    post(msg)
 
 
 def notify_inbound_paused(lead, body: str) -> None:
