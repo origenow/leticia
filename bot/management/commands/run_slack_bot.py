@@ -40,6 +40,8 @@ HELP_TEXT = (
     "• `@Letícia status` — números atuais\n"
     "• `@Letícia history <fone>` — últimas 10 mensagens\n"
     "• `@Letícia optout <fone> [motivo]` — bloqueia esse número\n"
+    "• `@Letícia prospect preview <N>` — gera primeira msg pra N leads do Robinhood (sem enviar)\n"
+    "• `@Letícia prospect send <N>` — gera + envia pra N leads do Robinhood\n"
     "• `@Letícia help` — esta ajuda\n"
     "\n"
     "_Dica:_ comandos sem mencionar também funcionam (ex: digitar só `status` no canal)."
@@ -95,6 +97,59 @@ def dispatch(text: str, user_id: str, user_name: str) -> str | None:
         phone = _normalize_phone(args[0])
         reason = " ".join(args[1:])
         return orchestrator.cmd_optout_add(user_id, user_name, phone, reason)
+
+    if cmd == "prospect":
+        # subcomandos: preview <N> | send <N>
+        if not args:
+            return (
+                "Uso: `@Letícia prospect preview <N>` (gera msgs, não envia)\n"
+                "     `@Letícia prospect send <N>` (envia de verdade)"
+            )
+        sub = args[0].lower()
+        try:
+            n = int(args[1]) if len(args) > 1 else 5
+        except ValueError:
+            n = 5
+        n = max(1, min(20, n))
+        from bot.services import prospecting, robinhood
+        if sub == "preview":
+            leads = robinhood.fetch_enriched_leads(limit=n)
+            if not leads:
+                return "Nenhum lead enriquecido com telefone encontrado."
+            out = [f"*Preview de {len(leads)} lead(s)* (não enviei nada):\n"]
+            for i, ld in enumerate(leads, 1):
+                try:
+                    msg = prospecting.generate_first_touch(ld)
+                except Exception as e:
+                    msg = f"_(erro gerando: {e})_"
+                ch = ", ".join(ld.sales_channels) or "?"
+                out.append(
+                    f"*{i}. {ld.nome_comercial}* `{ld.cnpj}` — {ld.socio_nome} (`{ld.phone}`)\n"
+                    f"_Canais: {ch} | Produtos: {', '.join(ld.produtos[:2]) or '?'}_\n"
+                    f"```\n{msg}\n```"
+                )
+            out.append(f"\nSe gostou, roda `@Letícia prospect send {n}` pra disparar.")
+            return "\n".join(out)
+        if sub == "send":
+            leads = robinhood.fetch_enriched_leads(limit=n)
+            if not leads:
+                return "Nenhum lead enriquecido com telefone encontrado."
+            results = []
+            for ld in leads:
+                try:
+                    msg = prospecting.generate_first_touch(ld)
+                    if not msg:
+                        results.append(f":warning: {ld.nome_comercial}: msg vazia")
+                        continue
+                    out = prospecting.send_first_touch(ld, msg)
+                    if out.get("skipped"):
+                        results.append(f":no_entry: {ld.nome_comercial}: opt-out")
+                    elif out.get("sent"):
+                        results.append(f":envelope_with_arrow: {ld.nome_comercial} → `{ld.phone}`")
+                except Exception as e:
+                    results.append(f":x: {ld.nome_comercial}: {e}")
+            return "*Prospecção enviada:*\n" + "\n".join(results)
+        return f"Subcomando `{sub}` inválido. Use `preview` ou `send`."
 
     return None  # not a command
 
