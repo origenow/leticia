@@ -94,6 +94,31 @@ def parse_inbound(payload: dict) -> InboundMessage | None:
     )
 
 
+def fetch_messages(remote_jid: str, limit: int = 30) -> list[dict]:
+    """POST /chat/findMessages/{instance} — pulls recent messages for a chat.
+
+    Used to hydrate Letícia's local memory when she sees a lead for the first
+    time but the Evolution chat already has history.
+    """
+    if not remote_jid:
+        return []
+    instance = quote(settings.EVOLUTION_INSTANCE, safe="")
+    url = f"{settings.EVOLUTION_BASE_URL.rstrip('/')}/chat/findMessages/{instance}"
+    headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
+    body = {"where": {"key": {"remoteJid": remote_jid}}, "limit": limit}
+    try:
+        r = httpx.post(url, json=body, headers=headers, timeout=20.0)
+        r.raise_for_status()
+        d = r.json()
+    except httpx.HTTPError as e:
+        log.warning("evolution.fetch_messages failed jid=%s err=%s", remote_jid, e)
+        return []
+    msgs = d.get("messages") if isinstance(d, dict) else d
+    if isinstance(msgs, dict):
+        msgs = msgs.get("records") or []
+    return msgs or []
+
+
 def get_media_base64(message_key: dict) -> tuple[str, str] | None:
     """POST /chat/getBase64FromMediaMessage/{instance} — baixa mídia (áudio/imagem/doc).
 

@@ -45,8 +45,15 @@ def _open_conversation(lead: Lead) -> Conversation:
     return Conversation.objects.create(lead=lead)
 
 
-def _history(conv: Conversation, limit: int = 12) -> list[dict]:
-    msgs = list(conv.messages.order_by("-id")[:limit])[::-1]
+def _history(conv: Conversation, limit: int = 30) -> list[dict]:
+    """Histórico do LEAD (não só da conversa atual) — memória durável.
+
+    Considera mensagens de TODAS as conversas do mesmo lead, oldest-first.
+    """
+    msgs = list(
+        Message.objects.filter(conversation__lead=conv.lead)
+        .order_by("-id")[:limit]
+    )[::-1]
     out = []
     for m in msgs:
         out.append({
@@ -54,6 +61,73 @@ def _history(conv: Conversation, limit: int = 12) -> list[dict]:
             "content": m.body,
         })
     return out
+
+
+def hydrate_from_evolution(lead: Lead, remote_jid: str, min_existing: int = 3) -> int:
+    """Se Letícia tem poucas mensagens desse lead, importa as últimas N do
+    chat do Evolution. Evita duplicar via evolution_message_id.
+
+    Retorna número de mensagens importadas.
+    """
+    existing = Message.objects.filter(conversation__lead=lead).count()
+    if existing >= min_existing:
+        return 0
+    evo_msgs = evolution.fetch_messages(remote_jid, limit=30)
+    if not evo_msgs:
+        return 0
+
+    conv = (
+        Conversation.objects.filter(lead=lead).order_by("-id").first()
+        or Conversation.objects.create(lead=lead)
+    )
+
+    existing_ids = set(
+        Message.objects.filter(conversation__lead=lead)
+        .exclude(evolution_message_id="")
+        .values_list("evolution_message_id", flat=True)
+    )
+
+    imported = 0
+    # Evolution retorna mais-recente primeiro; ordenar do mais antigo pro mais novo
+    sorted_msgs = sorted(
+        evo_msgs,
+        key=lambda m: (m.get("messageTimestamp") or 0),
+    )
+    for m in sorted_msgs:
+        msg_key = m.get("key") or {}
+        msg_id = msg_key.get("id") or ""
+        if msg_id and msg_id in existing_ids:
+            continue
+        msg_body = m.get("message") or {}
+        text = (
+            msg_body.get("conversation")
+            or (msg_body.get("extendedTextMessage") or {}).get("text")
+            or ""
+        ).strip()
+        # Mídia: registra como marcador (sem baixar/transcrever histórico — caro)
+        if not text:
+            if msg_body.get("audioMessage"):
+                text = "[áudio enviado anteriormente — sem transcrição]"
+            elif msg_body.get("imageMessage"):
+                cap = msg_body["imageMessage"].get("caption", "")
+                text = f"[imagem enviada anteriormente{' com legenda: ' + cap if cap else ''}]"
+            elif msg_body.get("documentMessage"):
+                fn = msg_body["documentMessage"].get("fileName", "")
+                text = f"[documento enviado anteriormente: {fn or 'sem nome'}]"
+            else:
+                continue  # outros tipos sem corpo: pula
+        from_me = msg_key.get("fromMe", False)
+        Message.objects.create(
+            conversation=conv,
+            direction="outbound" if from_me else "inbound",
+            body=text,
+            evolution_message_id=msg_id,
+            raw={"imported_from_evolution": True, "ts": m.get("messageTimestamp")},
+        )
+        imported += 1
+    if imported:
+        log.info("hydrated %d messages from Evolution for lead=%s", imported, lead.phone)
+    return imported
 
 
 def handle_inbound(
@@ -81,6 +155,13 @@ def handle_inbound(
 
     lead = _get_or_create_lead(phone, push_name)
     conv = _open_conversation(lead)
+
+    # ---- Memória: se Letícia mal conhece esse lead, importa últimas N
+    # mensagens do Evolution pra ela ter contexto da conversa anterior. ----
+    try:
+        hydrate_from_evolution(lead, rjid, min_existing=3)
+    except Exception:
+        log.exception("hydrate_from_evolution raised (continuing)")
 
     # ---- Mídia: baixa, transcreve áudio, prepara imagem pra Claude ----
     image_b64: str | None = None
