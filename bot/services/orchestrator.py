@@ -13,7 +13,7 @@ from ..models import (
     Message,
     OptOut,
 )
-from . import anthropic_client, guardrails, message_dispatcher, slack_notify
+from . import anthropic_client, evolution, guardrails, message_dispatcher, slack_notify
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,14 @@ def _history(conv: Conversation, limit: int = 12) -> list[dict]:
 
 
 def handle_inbound(phone: str, body: str, message_id: str, push_name: str, raw: dict) -> None:
+    # Best-effort blue-tick: marca como lida ANTES de processar, pra parecer humana.
+    # Falha silenciosa — não bloqueia o fluxo.
+    remote_jid = f"{phone}@s.whatsapp.net"
+    try:
+        evolution.mark_as_read(remote_jid, message_id)
+    except Exception:
+        log.exception("mark_as_read raised (unexpected)")
+
     if OptOut.objects.filter(phone=phone).exists():
         log.info("ignoring inbound from opted-out phone=%s", phone)
         return

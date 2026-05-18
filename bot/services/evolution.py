@@ -65,6 +65,52 @@ def parse_inbound(payload: dict) -> InboundMessage | None:
     )
 
 
+def mark_as_read(remote_jid: str, message_id: str) -> dict:
+    """POST /chat/markMessageAsRead/{instance} — send blue tick to the lead.
+
+    Best-effort: any error is logged but never raised, so failure to mark
+    doesn't break the response pipeline.
+    """
+    if not remote_jid or not message_id:
+        return {"skipped": True}
+    instance = quote(settings.EVOLUTION_INSTANCE, safe="")
+    url = f"{settings.EVOLUTION_BASE_URL.rstrip('/')}/chat/markMessageAsRead/{instance}"
+    headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
+    body = {
+        "readMessages": [
+            {"remoteJid": remote_jid, "fromMe": False, "id": message_id}
+        ]
+    }
+    try:
+        r = httpx.post(url, json=body, headers=headers, timeout=10.0)
+        r.raise_for_status()
+        return r.json() if r.content else {"ok": True}
+    except httpx.HTTPError as e:
+        log.warning("evolution.mark_as_read failed jid=%s err=%s", remote_jid, e)
+        return {"error": str(e)}
+
+
+def send_presence(remote_jid: str, presence: str = "composing", delay_ms: int = 1500) -> dict:
+    """POST /chat/sendPresence/{instance} — show 'typing...' to the lead.
+
+    presence values: 'composing' (typing), 'recording' (recording audio),
+    'paused', 'available', 'unavailable'.
+    """
+    if not remote_jid:
+        return {"skipped": True}
+    instance = quote(settings.EVOLUTION_INSTANCE, safe="")
+    url = f"{settings.EVOLUTION_BASE_URL.rstrip('/')}/chat/sendPresence/{instance}"
+    headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
+    body = {"number": remote_jid, "presence": presence, "delay": delay_ms}
+    try:
+        r = httpx.post(url, json=body, headers=headers, timeout=10.0)
+        r.raise_for_status()
+        return r.json() if r.content else {"ok": True}
+    except httpx.HTTPError as e:
+        log.warning("evolution.send_presence failed jid=%s err=%s", remote_jid, e)
+        return {"error": str(e)}
+
+
 def send_text(phone: str, text: str) -> dict:
     """POST to Evolution /message/sendText/{instance}.
 

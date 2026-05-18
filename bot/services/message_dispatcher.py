@@ -23,13 +23,24 @@ def split_balloons(text: str) -> list[str]:
 
 
 def _send_with_delays(phone: str, parts: list[str], on_sent=None) -> None:
+    remote_jid = f"{phone}@s.whatsapp.net"
     for i, part in enumerate(parts):
-        if i > 0:
-            delay_ms = random.randint(
-                settings.LETICIA_TYPING_DELAY_MIN_MS,
-                settings.LETICIA_TYPING_DELAY_MAX_MS,
-            )
-            time.sleep(delay_ms / 1000.0)
+        delay_ms = random.randint(
+            settings.LETICIA_TYPING_DELAY_MIN_MS,
+            settings.LETICIA_TYPING_DELAY_MAX_MS,
+        )
+        # Mostra "digitando..." enquanto espera. Tempo proporcional ao tamanho do balão.
+        # ~30 chars/seg de digitação humana, mínimo 1.2s, máximo o LETICIA_TYPING_DELAY_MAX_MS.
+        chars_delay_ms = min(
+            settings.LETICIA_TYPING_DELAY_MAX_MS,
+            max(1200, len(part) * 33),
+        )
+        total_wait_ms = max(delay_ms, chars_delay_ms) if i > 0 else chars_delay_ms
+        try:
+            evolution.send_presence(remote_jid, "composing", delay_ms=total_wait_ms)
+        except Exception:
+            log.exception("send_presence raised")
+        time.sleep(total_wait_ms / 1000.0)
         result = evolution.send_text(phone, part)
         if on_sent:
             try:
