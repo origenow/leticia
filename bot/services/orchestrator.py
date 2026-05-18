@@ -17,7 +17,7 @@ from ..models import (
     Message,
     OptOut,
 )
-from . import anthropic_client, evolution, guardrails, message_dispatcher, slack_notify
+from . import anthropic_client, evolution, guardrails, media_transcribe, message_dispatcher, slack_notify
 
 log = logging.getLogger(__name__)
 
@@ -56,12 +56,22 @@ def _history(conv: Conversation, limit: int = 12) -> list[dict]:
     return out
 
 
-def handle_inbound(phone: str, body: str, message_id: str, push_name: str, raw: dict) -> None:
+def handle_inbound(
+    phone: str,
+    body: str,
+    message_id: str,
+    push_name: str,
+    raw: dict,
+    media_kind: str = "",
+    media_mimetype: str = "",
+    media_caption: str = "",
+    remote_jid: str = "",
+) -> None:
     # Best-effort blue-tick: marca como lida ANTES de processar, pra parecer humana.
     # Falha silenciosa — não bloqueia o fluxo.
-    remote_jid = f"{phone}@s.whatsapp.net"
+    rjid = remote_jid or f"{phone}@s.whatsapp.net"
     try:
-        evolution.mark_as_read(remote_jid, message_id)
+        evolution.mark_as_read(rjid, message_id)
     except Exception:
         log.exception("mark_as_read raised (unexpected)")
 
@@ -71,6 +81,44 @@ def handle_inbound(phone: str, body: str, message_id: str, push_name: str, raw: 
 
     lead = _get_or_create_lead(phone, push_name)
     conv = _open_conversation(lead)
+
+    # ---- Mídia: baixa, transcreve áudio, prepara imagem pra Claude ----
+    image_b64: str | None = None
+    image_mime: str | None = None
+    media_text_prefix = ""
+    if media_kind:
+        msg_key = (raw.get("data", {}).get("key") or {})
+        if not msg_key:
+            msg_key = {"id": message_id, "remoteJid": rjid, "fromMe": False}
+        download = evolution.get_media_base64(msg_key)
+        if download:
+            b64, real_mime = download
+            mime = real_mime or media_mimetype
+            if media_kind == "audio":
+                transcript = media_transcribe.transcribe_audio_b64(b64, mime)
+                if transcript:
+                    media_text_prefix = f"[áudio do lead transcrito]: \"{transcript}\""
+                    body = (body or "").strip()
+                    body = f"{media_text_prefix}\n{body}".strip() if body else media_text_prefix
+                else:
+                    media_text_prefix = "[lead mandou um áudio que não consegui transcrever]"
+                    body = f"{media_text_prefix}\n{body}".strip() if body else media_text_prefix
+            elif media_kind == "image":
+                image_b64 = b64
+                image_mime = mime
+                cap = media_caption or ""
+                tag = f"[imagem do lead{' com legenda: \"' + cap + '\"' if cap else ''}]"
+                body = f"{tag}\n{body}".strip() if body else tag
+            elif media_kind == "document":
+                fname = media_caption or "(sem nome)"
+                tag = f"[documento do lead: {fname} (tipo {media_mimetype})] — não consegui ler arquivos ainda; peça pro lead mandar como texto se relevante."
+                body = f"{tag}\n{body}".strip() if body else tag
+            elif media_kind == "video":
+                tag = f"[lead mandou vídeo, ignore o conteúdo do vídeo e peça pra resumir em texto se for importante]"
+                body = f"{tag}\n{body}".strip() if body else tag
+        else:
+            log.warning("failed to download media for msg %s", message_id)
+            body = (body or "").strip() or f"[mídia ({media_kind}) que não consegui baixar]"
 
     Message.objects.create(
         conversation=conv,
@@ -115,7 +163,9 @@ def handle_inbound(phone: str, body: str, message_id: str, push_name: str, raw: 
         return
 
     history = _history(conv)[:-1]  # exclude the just-inserted inbound
-    reply = anthropic_client.generate_reply(lead, history, body)
+    reply = anthropic_client.generate_reply(
+        lead, history, body, image_b64=image_b64, image_mime=image_mime
+    )
     if not reply:
         slack_notify.notify_error(lead, "Claude returned empty reply")
         return

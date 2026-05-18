@@ -18,6 +18,11 @@ class InboundMessage:
     message_id: str
     push_name: str
     raw: dict
+    # Mídia (preenchido só quando messageType for audio/image/document)
+    media_kind: str = ""        # "audio" | "image" | "document" | ""
+    media_mimetype: str = ""
+    media_caption: str = ""     # legenda da imagem ou nome do doc
+    remote_jid: str = ""        # jid completo, pra baixar mídia depois
 
 
 def parse_inbound(payload: dict) -> InboundMessage | None:
@@ -53,7 +58,27 @@ def parse_inbound(payload: dict) -> InboundMessage | None:
         or (msg.get("extendedTextMessage") or {}).get("text")
         or ""
     )
-    if not body.strip():
+
+    media_kind = ""
+    media_mime = ""
+    media_caption = ""
+    if msg.get("audioMessage"):
+        media_kind = "audio"
+        media_mime = msg["audioMessage"].get("mimetype", "")
+    elif msg.get("imageMessage"):
+        media_kind = "image"
+        media_mime = msg["imageMessage"].get("mimetype", "")
+        media_caption = msg["imageMessage"].get("caption", "") or ""
+    elif msg.get("documentMessage"):
+        media_kind = "document"
+        media_mime = msg["documentMessage"].get("mimetype", "")
+        media_caption = msg["documentMessage"].get("fileName", "") or msg["documentMessage"].get("title", "") or ""
+    elif msg.get("videoMessage"):
+        media_kind = "video"
+        media_mime = msg["videoMessage"].get("mimetype", "")
+        media_caption = msg["videoMessage"].get("caption", "") or ""
+
+    if not body.strip() and not media_kind:
         return None
 
     return InboundMessage(
@@ -62,7 +87,34 @@ def parse_inbound(payload: dict) -> InboundMessage | None:
         message_id=key.get("id", ""),
         push_name=data.get("pushName", ""),
         raw=payload,
+        media_kind=media_kind,
+        media_mimetype=media_mime,
+        media_caption=media_caption,
+        remote_jid=remote_jid,
     )
+
+
+def get_media_base64(message_key: dict) -> tuple[str, str] | None:
+    """POST /chat/getBase64FromMediaMessage/{instance} — baixa mídia (áudio/imagem/doc).
+
+    Returns (base64_str, mimetype) or None on failure.
+    """
+    instance = quote(settings.EVOLUTION_INSTANCE, safe="")
+    url = f"{settings.EVOLUTION_BASE_URL.rstrip('/')}/chat/getBase64FromMediaMessage/{instance}"
+    headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
+    body = {"message": {"key": message_key}, "convertToMp4": False}
+    try:
+        r = httpx.post(url, json=body, headers=headers, timeout=60.0)
+        r.raise_for_status()
+        d = r.json()
+        b64 = d.get("base64") or d.get("data") or ""
+        mime = d.get("mimetype") or ""
+        if not b64:
+            return None
+        return (b64, mime)
+    except httpx.HTTPError as e:
+        log.warning("evolution.get_media_base64 failed: %s", e)
+        return None
 
 
 def mark_as_read(remote_jid: str, message_id: str) -> dict:

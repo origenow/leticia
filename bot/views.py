@@ -33,6 +33,10 @@ def evolution_webhook(request):
             message_id=inbound.message_id,
             push_name=inbound.push_name,
             raw=payload,
+            media_kind=inbound.media_kind,
+            media_mimetype=inbound.media_mimetype,
+            media_caption=inbound.media_caption,
+            remote_jid=inbound.remote_jid,
         )
     except Exception as e:
         log.exception("orchestrator.handle_inbound failed: %s", e)
